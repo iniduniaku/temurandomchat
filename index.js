@@ -44,6 +44,29 @@ bot.onText(/\/maintenance/, (msg) => {
   }
 });
 
+// Enhanced callback query handler
+bot.on('callback_query', (callbackQuery) => {
+  const data = callbackQuery.data;
+  
+  // Handle user callback queries
+  if (['find_new_partner', 'stop_chatting', 'end_current_chat', 'report_current_partner'].includes(data)) {
+    userHandlers.handleCallbackQuery(callbackQuery);
+    return;
+  }
+  
+  // Handle admin callback queries
+  if (data.startsWith('admin_')) {
+    adminHandlers.handleAdminCallback(callbackQuery);
+    return;
+  }
+  
+  // Handle additional user callbacks
+  if (['end_current_chat', 'report_current_partner'].includes(data)) {
+    userHandlers.handleAdditionalCallbacks(callbackQuery);
+    return;
+  }
+});
+
 // Message handler
 bot.on('text', (msg) => {
   // Skip if message is a command
@@ -51,6 +74,85 @@ bot.on('text', (msg) => {
   
   userHandlers.handleMessage(msg);
 });
+
+// Photo message handler (forward photos in chat)
+bot.on('photo', (msg) => {
+  const userId = msg.from.id;
+  
+  if (dataService.isUserBlocked(userId)) {
+    bot.sendMessage(msg.chat.id, '❌ Anda telah diblokir dari menggunakan bot ini.');
+    return;
+  }
+
+  const matchingService = require('./src/services/matchingService');
+  
+  if (matchingService.isInChat(userId)) {
+    const partnerId = matchingService.getPartner(userId);
+    const userInfo = dataService.getUser(userId);
+    
+    // Forward photo to partner
+    bot.sendPhoto(partnerId, msg.photo[msg.photo.length - 1].file_id, {
+      caption: msg.caption ? `${userInfo.name}: ${msg.caption}` : `📷 Foto dari ${userInfo.name}`
+    });
+  } else {
+    bot.sendMessage(msg.chat.id, '❌ Anda tidak sedang dalam obrolan.');
+  }
+});
+
+// Document/sticker/voice message handlers
+bot.on('document', (msg) => forwardMediaMessage(msg, 'document'));
+bot.on('sticker', (msg) => forwardMediaMessage(msg, 'sticker'));
+bot.on('voice', (msg) => forwardMediaMessage(msg, 'voice'));
+bot.on('video', (msg) => forwardMediaMessage(msg, 'video'));
+bot.on('audio', (msg) => forwardMediaMessage(msg, 'audio'));
+
+function forwardMediaMessage(msg, mediaType) {
+  const userId = msg.from.id;
+  
+  if (dataService.isUserBlocked(userId)) {
+    bot.sendMessage(msg.chat.id, '❌ Anda telah diblokir dari menggunakan bot ini.');
+    return;
+  }
+
+  const matchingService = require('./src/services/matchingService');
+  
+  if (matchingService.isInChat(userId)) {
+    const partnerId = matchingService.getPartner(userId);
+    const userInfo = dataService.getUser(userId);
+    
+    let mediaOptions = {};
+    let mediaId;
+    
+    switch (mediaType) {
+      case 'document':
+        mediaId = msg.document.file_id;
+        mediaOptions.caption = `📎 Dokumen dari ${userInfo.name}`;
+        bot.sendDocument(partnerId, mediaId, mediaOptions);
+        break;
+      case 'sticker':
+        mediaId = msg.sticker.file_id;
+        bot.sendSticker(partnerId, mediaId);
+        break;
+      case 'voice':
+        mediaId = msg.voice.file_id;
+        mediaOptions.caption = `🎤 Pesan suara dari ${userInfo.name}`;
+        bot.sendVoice(partnerId, mediaId, mediaOptions);
+        break;
+      case 'video':
+        mediaId = msg.video.file_id;
+        mediaOptions.caption = msg.caption ? `${userInfo.name}: ${msg.caption}` : `🎥 Video dari ${userInfo.name}`;
+        bot.sendVideo(partnerId, mediaId, mediaOptions);
+        break;
+      case 'audio':
+        mediaId = msg.audio.file_id;
+        mediaOptions.caption = `🎵 Audio dari ${userInfo.name}`;
+        bot.sendAudio(partnerId, mediaId, mediaOptions);
+        break;
+    }
+  } else {
+    bot.sendMessage(msg.chat.id, '❌ Anda tidak sedang dalam obrolan.');
+  }
+}
 
 // Error handling
 bot.on('polling_error', (error) => {
@@ -72,13 +174,15 @@ process.on('SIGINT', () => {
 
 console.log('🤖 Telegram Random Chat Bot Started!');
 console.log('📋 Fitur yang tersedia:');
-console.log('   ✅ Random chat matching dengan nama (tidak anonim)');
-console.log('   ✅ Sistem laporan ke admin');
-console.log('   ✅ Admin dapat memblokir/unblock user');
+console.log('   ✅ Random chat matching dengan foto profil dan info lengkap');
+console.log('   ✅ Pilihan lanjut setelah obrolan berakhir');
+console.log('   ✅ Forward semua jenis media (foto, video, audio, sticker, dll)');
+console.log('   ✅ Interactive admin panel untuk laporan');
+console.log('   ✅ One-click block/ignore untuk admin');
+console.log('   ✅ User history dan warning system');
 console.log('   ✅ Auto-block setelah 3 laporan');
 console.log('   ✅ Penyimpanan data dalam file JSON dengan auto-cleanup');
 console.log('   ✅ Statistik bot untuk admin');
-console.log('   ✅ Timeout otomatis untuk chat');
 console.log('   ✅ Automatic data maintenance');
 console.log('\n📁 Data disimpan di folder ./data/');
 console.log('⚙️  Konfigurasi dapat diubah di ./config/config.js');
