@@ -24,6 +24,26 @@ bot.onText(/\/stats/, (msg) => adminHandlers.handleStats(msg));
 bot.onText(/\/reports/, (msg) => adminHandlers.handleReports(msg));
 bot.onText(/\/adminhelp/, (msg) => adminHandlers.handleAdminHelp(msg));
 
+// Admin maintenance command
+bot.onText(/\/maintenance/, (msg) => {
+  const adminId = msg.from.id;
+  const chatId = msg.chat.id;
+
+  if (adminId.toString() !== config.telegram.adminId.toString()) {
+    bot.sendMessage(chatId, '❌ Anda tidak memiliki akses admin.');
+    return;
+  }
+
+  bot.sendMessage(chatId, '🔧 Memulai maintenance data...');
+  
+  try {
+    dataService.performMaintenance();
+    bot.sendMessage(chatId, '✅ Maintenance selesai!');
+  } catch (error) {
+    bot.sendMessage(chatId, `❌ Error during maintenance: ${error.message}`);
+  }
+});
+
 // Message handler
 bot.on('text', (msg) => {
   // Skip if message is a command
@@ -36,6 +56,12 @@ bot.on('text', (msg) => {
 bot.on('polling_error', (error) => {
   console.error('Polling error:', error);
 });
+
+// Periodic maintenance (every 24 hours)
+setInterval(() => {
+  console.log('Running automatic maintenance...');
+  dataService.performMaintenance();
+}, 24 * 60 * 60 * 1000);
 
 // Graceful shutdown
 process.on('SIGINT', () => {
@@ -50,8 +76,9 @@ console.log('   ✅ Random chat matching dengan nama (tidak anonim)');
 console.log('   ✅ Sistem laporan ke admin');
 console.log('   ✅ Admin dapat memblokir/unblock user');
 console.log('   ✅ Auto-block setelah 3 laporan');
-console.log('   ✅ Penyimpanan data dalam file JSON');
+console.log('   ✅ Penyimpanan data dalam file JSON dengan auto-cleanup');
 console.log('   ✅ Statistik bot untuk admin');
 console.log('   ✅ Timeout otomatis untuk chat');
+console.log('   ✅ Automatic data maintenance');
 console.log('\n📁 Data disimpan di folder ./data/');
 console.log('⚙️  Konfigurasi dapat diubah di ./config/config.js');
