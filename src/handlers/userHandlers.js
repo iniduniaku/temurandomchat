@@ -8,7 +8,7 @@ class UserHandlers {
     this.bot = bot;
   }
 
-  // Welcome message saat /start (tidak langsung mencari)
+  // /start hanya untuk informasi awal
   handleStart(msg) {
     const userId = msg.from.id;
     const chatId = msg.chat.id;
@@ -29,13 +29,38 @@ class UserHandlers {
 
     dataService.addUser(userId, userInfo);
 
-    // Show welcome message instead of starting search
+    // Show welcome message (informasi awal saja)
     this.showWelcomeMessage(chatId);
+  }
+
+  // /cari untuk mencari pasangan
+  handleCari(msg) {
+    const userId = msg.from.id;
+    const chatId = msg.chat.id;
+
+    // Check if user is blocked
+    if (dataService.isUserBlocked(userId)) {
+      this.bot.sendMessage(chatId, '🚫 Anda telah diblokir dari bot ini.');
+      return;
+    }
+
+    // Add/update user data jika belum ada
+    const userInfo = {
+      id: userId,
+      name: msg.from.first_name + (msg.from.last_name ? ` ${msg.from.last_name}` : ''),
+      username: msg.from.username || 'no_username',
+      language: msg.from.language_code || 'unknown'
+    };
+
+    dataService.addUser(userId, userInfo);
+
+    // Langsung mulai pencarian
+    this.startSearching(userId, chatId);
   }
 
   showWelcomeMessage(chatId) {
     const welcomeMessage = 
-      `🤖 **SELAMAT DATANG DI TEMU!**\n\n` +
+      `🤖 **SELAMAT DATANG DI RANDOM CHAT BOT!**\n\n` +
       `✨ **Fitur Utama:**\n` +
       `• 💬 Obrolan random dengan pengguna lain\n` +
       `• 🖼️ Berbagi foto, video, audio, sticker, dan media lainnya\n` +
@@ -43,23 +68,29 @@ class UserHandlers {
       `• ⚡ Interface yang mudah dengan tombol cepat\n` +
       `• 🛡️ Sistem laporan untuk keamanan\n\n` +
       `📋 **Cara Menggunakan:**\n` +
-      `1. Tekan tombol "🔍 Mulai Cari Pasangan" di bawah\n` +
-      `2. Tunggu hingga menemukan pasangan obrolan\n` +
+      `1. Ketik /cari untuk mencari pasangan obrolan\n` +
+      `2. Tunggu hingga menemukan pasangan\n` +
       `3. Mulai mengobrol dengan bebas!\n` +
-      `4. Gunakan tombol "⏹️ Akhiri Obrolan" jika ingin berhenti\n\n` +
+      `4. Gunakan /stop untuk mengakhiri obrolan\n\n` +
+      `🔧 **Perintah Utama:**\n` +
+      `• /start - Tampilkan informasi ini\n` +
+      `• /cari - Mulai mencari pasangan obrolan\n` +
+      `• /stop - Keluar dari antrian/obrolan\n` +
+      `• /report - Laporkan pengguna bermasalah\n` +
+      `• /help - Tampilkan bantuan lengkap\n\n` +
       `⚠️ **Aturan Penting:**\n` +
       `• Bersikap sopan dan menghormati pengguna lain\n` +
       `• Tidak mengirim konten yang tidak pantas\n` +
       `• Gunakan fitur laporan jika ada masalah\n\n` +
-      `🚀 **Siap untuk memulai obrolan random?**`;
+      `🚀 **Siap untuk memulai? Ketik /cari**`;
 
     const keyboard = {
       inline_keyboard: [
         [
-          { text: '🔍 Mulai Cari Pasangan', callback_data: 'start_searching' }
+          { text: '🔍 Mulai Cari Pasangan', callback_data: 'start_cari' }
         ],
         [
-          { text: '❓ Bantuan', callback_data: 'show_help' },
+          { text: '❓ Bantuan Lengkap', callback_data: 'show_help' },
           { text: '📊 Info Bot', callback_data: 'show_info' }
         ]
       ]
@@ -71,7 +102,6 @@ class UserHandlers {
     });
   }
 
-  // Method untuk memulai pencarian (dipindahkan dari handleStart yang lama)
   startSearching(userId, chatId) {
     // Check if user is blocked
     if (dataService.isUserBlocked(userId)) {
@@ -133,31 +163,27 @@ class UserHandlers {
 
     // Check if user is in chat
     if (matchingService.isInChat(userId)) {
-      const result = matchingService.endChat(userId, 'user_stopped');
+      const partnerId = matchingService.getPartner(userId);
+      const endResult = matchingService.endChat(userId, 'user_stopped');
       
-      if (result) {
-        // Notify partner
-        this.bot.sendMessage(result.partnerId, '👋 Pasangan Anda telah meninggalkan obrolan.');
-        this.showContinueOptions(result.partnerId, 'partner_left');
+      if (endResult && partnerId) {
+        this.bot.sendMessage(chatId, '⏹️ Obrolan telah dihentikan.');
+        this.bot.sendMessage(partnerId, '👋 Pasangan Anda telah meninggalkan obrolan.');
         
-        // Notify user
-        this.bot.sendMessage(chatId, '⏹️ Anda telah menghentikan obrolan.');
         this.showContinueOptions(userId, 'user_stopped');
+        this.showContinueOptions(partnerId, 'partner_left');
       }
-      return;
-    }
-
+    } 
     // Check if user is in queue
-    if (matchingService.isInQueue(userId)) {
+    else if (matchingService.isInQueue(userId)) {
       matchingService.removeFromQueue(userId);
       this.bot.sendMessage(chatId, '❌ Pencarian dibatalkan.');
       this.showWelcomeMessage(chatId);
-      return;
+    } 
+    else {
+      this.bot.sendMessage(chatId, '❌ Anda tidak sedang dalam obrolan atau pencarian.');
+      this.showWelcomeMessage(chatId);
     }
-
-    // User is not in chat or queue
-    this.bot.sendMessage(chatId, '❌ Anda tidak sedang dalam obrolan atau pencarian.');
-    this.showWelcomeMessage(chatId);
   }
 
   handleReport(msg) {
@@ -175,56 +201,59 @@ class UserHandlers {
     const partnerInfo = dataService.getUser(partnerId);
 
     if (!partnerInfo) {
-      this.bot.sendMessage(chatId, '❌ Tidak dapat menemukan informasi pasangan.');
+      this.bot.sendMessage(chatId, '❌ Tidak dapat menemukan informasi pasangan Anda.');
       return;
     }
 
     // Add report
     const report = dataService.addReport(userInfo, partnerInfo);
     
-    if (report) {
-      // End the chat
-      matchingService.endChat(userId, 'reported');
-      
-      // Notify users
-      this.bot.sendMessage(chatId, 
-        `✅ Laporan telah dikirim!\n\n` +
-        `👮 Admin akan meninjau laporan Anda.\n` +
-        `🔒 Obrolan telah dihentikan untuk keamanan.`
-      );
-      
-      this.bot.sendMessage(partnerId, 
-        `⚠️ Anda telah dilaporkan oleh pasangan.\n` +
-        `🔒 Obrolan dihentikan untuk investigasi.`
-      );
+    if (!report) {
+      this.bot.sendMessage(chatId, '❌ Gagal mengirim laporan. Silakan coba lagi.');
+      return;
+    }
 
-      // Send notification to admin
-      reportService.notifyAdminNewReport(this.bot, report);
+    // Send confirmation to reporter
+    this.bot.sendMessage(chatId, 
+      `✅ Laporan Anda telah dikirim!\n\n` +
+      `📋 User yang dilaporkan: ${partnerInfo.name}\n` +
+      `🆔 ID Laporan: ${report.id}\n` +
+      `📅 Waktu: ${helpers.formatDateTime(report.timestamp)}\n\n` +
+      `🔍 Admin akan meninjau laporan Anda segera.`
+    );
 
-      // Check if user should be auto-blocked
-      const updatedPartnerInfo = dataService.getUser(partnerId);
-      if (updatedPartnerInfo && updatedPartnerInfo.reportCount >= 3) {
-        dataService.blockUser(partnerId);
-        this.bot.sendMessage(partnerId, 
-          `🚫 Akun Anda telah diblokir otomatis karena menerima 3+ laporan.\n\n` +
-          `📞 Hubungi admin jika Anda merasa ini adalah kesalahan.`
-        );
+    // Check if user should be auto-blocked (3+ reports)
+    const updatedPartnerInfo = dataService.getUser(partnerId);
+    if (updatedPartnerInfo && updatedPartnerInfo.reportCount >= 3) {
+      // Auto-block user
+      dataService.blockUser(partnerId);
+      
+      // End their chat
+      const endResult = matchingService.endChat(partnerId);
+      if (endResult) {
+        this.bot.sendMessage(partnerId, '🚫 Anda telah diblokir otomatis karena terlalu banyak laporan.');
+        this.bot.sendMessage(userId, '⚠️ Pasangan Anda telah diblokir otomatis. Obrolan dihentikan.');
         
-        // Notify admin about auto-block
-        const config = require('../../config/config');
-        this.bot.sendMessage(config.telegram.adminId, 
+        this.showContinueOptions(userId, 'partner_blocked');
+      }
+      
+      // Remove from queue if in queue
+      matchingService.removeFromQueue(partnerId);
+      
+      // Notify admin about auto-block
+      if (helpers.isValidAdminId()) {
+        const adminId = helpers.getAdminId();
+        this.bot.sendMessage(adminId, 
           `🚫 AUTO-BLOCK TRIGGERED\n\n` +
-          `User: ${updatedPartnerInfo.name} (ID: ${partnerId})\n` +
-          `Reports: ${updatedPartnerInfo.reportCount}\n` +
-          `Reason: 3+ reports received`
+          `👤 User: ${updatedPartnerInfo.name} (ID: ${partnerId})\n` +
+          `📊 Total Reports: ${updatedPartnerInfo.reportCount}\n` +
+          `📅 Time: ${helpers.formatDateTime(new Date().toISOString())}\n\n` +
+          `User has been automatically blocked due to multiple reports.`
         );
       }
-
-      // Show continue options
-      this.showContinueOptions(userId, 'ended');
-      this.showContinueOptions(partnerId, 'ended');
     } else {
-      this.bot.sendMessage(chatId, '❌ Gagal mengirim laporan. Silakan coba lagi.');
+      // Send notification to admin about new report
+      this.sendReportToAdmin(report);
     }
   }
 
@@ -232,27 +261,35 @@ class UserHandlers {
     const chatId = msg.chat.id;
     
     const helpMessage = 
-      `❓ **BANTUAN TEMU**\n\n` +
+      `❓ **BANTUAN RANDOM CHAT BOT**\n\n` +
       `🔧 **Perintah Utama:**\n` +
-      `/start - Tampilkan menu utama\n` +
+      `/start - Tampilkan informasi bot\n` +
+      `/cari - Mulai mencari pasangan obrolan\n` +
       `/stop - Keluar dari antrian/obrolan\n` +
       `/report - Laporkan pengguna bermasalah\n` +
       `/help - Tampilkan bantuan ini\n\n` +
       `💬 **Dalam Obrolan:**\n` +
       `• Kirim pesan teks, foto, video, audio, sticker\n` +
-      `• Gunakan tombol "⏹️ Akhiri Obrolan" untuk berhenti\n` +
-      `• Pilih "🔍 Cari Lagi" untuk pasangan baru\n\n` +
+      `• Gunakan /stop untuk mengakhiri obrolan\n` +
+      `• Gunakan /report untuk melaporkan masalah\n` +
+      `• Lihat profil pasangan dengan tombol yang tersedia\n\n` +
       `🛡️ **Keamanan:**\n` +
       `• Gunakan /report jika ada masalah\n` +
       `• Block otomatis setelah 3+ laporan\n` +
       `• Admin akan menindaklanjuti laporan\n\n` +
       `⚡ **Tips:**\n` +
       `• Bersikap sopan untuk pengalaman terbaik\n` +
-      `• Gunakan fitur inline keyboard untuk navigasi cepat`;
+      `• Gunakan fitur inline keyboard untuk navigasi cepat\n` +
+      `• Pastikan notifikasi aktif agar tidak melewatkan chat`;
 
     const keyboard = {
       inline_keyboard: [
-        [{ text: '🏠 Menu Utama', callback_data: 'back_to_main_menu' }]
+        [
+          { text: '🔍 Mulai Cari Pasangan', callback_data: 'start_cari' }
+        ],
+        [
+          { text: '🏠 Menu Utama', callback_data: 'back_to_main_menu' }
+        ]
       ]
     };
 
@@ -262,15 +299,26 @@ class UserHandlers {
     });
   }
 
-  // Handle callback queries
   handleCallbackQuery(callbackQuery) {
     const chatId = callbackQuery.message.chat.id;
     const userId = callbackQuery.from.id;
     const data = callbackQuery.data;
 
     // Handle welcome callbacks
-    if (['start_searching', 'show_help', 'show_info', 'back_to_welcome', 'back_to_main_menu'].includes(data)) {
+    if (['start_cari', 'show_help', 'show_info', 'back_to_welcome'].includes(data)) {
       this.handleWelcomeCallback(callbackQuery);
+      return;
+    }
+
+    // Handle back to main menu
+    if (data === 'back_to_main_menu') {
+      this.bot.answerCallbackQuery(callbackQuery.id);
+      try {
+        this.bot.deleteMessage(chatId, callbackQuery.message.message_id);
+      } catch (error) {
+        // Message might be too old to delete, ignore error
+      }
+      this.showWelcomeMessage(chatId);
       return;
     }
 
@@ -283,18 +331,21 @@ class UserHandlers {
       case 'end_chat':
         this.handleEndChat(userId, chatId);
         break;
-      case 'find_new':
-        this.handleFindNew(userId, chatId, callbackQuery.message.message_id);
+      case 'report_user':
+        this.handleReportFromCallback(userId, chatId);
         break;
-      case 'show_profile':
-        this.handleShowProfile(userId, chatId);
+      case 'continue_search':
+        this.handleContinueSearch(userId, chatId, callbackQuery.message.message_id);
+        break;
+      case 'view_profile':
+        this.handleViewProfile(userId, chatId);
         break;
       default:
         this.bot.sendMessage(chatId, '❌ Aksi tidak dikenali.');
+        break;
     }
   }
 
-  // Handle welcome callback queries
   handleWelcomeCallback(callbackQuery) {
     const chatId = callbackQuery.message.chat.id;
     const userId = callbackQuery.from.id;
@@ -303,9 +354,13 @@ class UserHandlers {
     this.bot.answerCallbackQuery(callbackQuery.id);
 
     switch (data) {
-      case 'start_searching':
+      case 'start_cari':
         // Hapus welcome message
-        this.bot.deleteMessage(chatId, callbackQuery.message.message_id);
+        try {
+          this.bot.deleteMessage(chatId, callbackQuery.message.message_id);
+        } catch (error) {
+          // Message might be too old to delete, ignore error
+        }
         // Mulai pencarian
         this.startSearching(userId, chatId);
         break;
@@ -319,32 +374,33 @@ class UserHandlers {
         break;
 
       case 'back_to_welcome':
-      case 'back_to_main_menu':
         this.backToWelcome(chatId, callbackQuery.message.message_id);
         break;
     }
   }
 
-  // Method untuk menampilkan bantuan dari callback
   handleHelpFromCallback(chatId, messageId) {
     const helpMessage = 
-      `❓ **BANTUAN TEMU**\n\n` +
+      `❓ **BANTUAN RANDOM CHAT BOT**\n\n` +
       `🔧 **Perintah Utama:**\n` +
-      `/start - Tampilkan menu utama\n` +
+      `/start - Tampilkan informasi bot\n` +
+      `/cari - Mulai mencari pasangan obrolan\n` +
       `/stop - Keluar dari antrian/obrolan\n` +
       `/report - Laporkan pengguna bermasalah\n` +
       `/help - Tampilkan bantuan ini\n\n` +
       `💬 **Dalam Obrolan:**\n` +
       `• Kirim pesan teks, foto, video, audio, sticker\n` +
-      `• Gunakan tombol "⏹️ Akhiri Obrolan" untuk berhenti\n` +
-      `• Pilih "🔍 Cari Lagi" untuk pasangan baru\n\n` +
+      `• Gunakan /stop untuk mengakhiri obrolan\n` +
+      `• Gunakan /report untuk melaporkan masalah\n` +
+      `• Lihat profil pasangan dengan tombol yang tersedia\n\n` +
       `🛡️ **Keamanan:**\n` +
       `• Gunakan /report jika ada masalah\n` +
       `• Block otomatis setelah 3+ laporan\n` +
       `• Admin akan menindaklanjuti laporan\n\n` +
       `⚡ **Tips:**\n` +
       `• Bersikap sopan untuk pengalaman terbaik\n` +
-      `• Gunakan fitur inline keyboard untuk navigasi cepat`;
+      `• Gunakan fitur inline keyboard untuk navigasi cepat\n` +
+      `• Pastikan notifikasi aktif agar tidak melewatkan chat`;
 
     const backKeyboard = {
       inline_keyboard: [
@@ -360,7 +416,6 @@ class UserHandlers {
     });
   }
 
-  // Method untuk menampilkan info bot
   showBotInfo(chatId, messageId) {
     const stats = dataService.getStats();
     const matchingStats = matchingService.getStats();
@@ -379,7 +434,10 @@ class UserHandlers {
       `• Sistem keamanan dengan fitur laporan\n` +
       `• Auto-cleanup data untuk performa optimal\n` +
       `• Foto profil dan info pengguna\n\n` +
-      
+      `💻 **Teknologi:**\n` +
+      `• Node.js + Telegram Bot API\n` +
+      `• Real-time matching system\n` +
+      `• JSON-based data storage\n\n` +
       `📝 **Versi:** 2.0.0\n` +
       `📅 **Update:** ${new Date().toLocaleDateString('id-ID')}`;
 
@@ -397,10 +455,9 @@ class UserHandlers {
     });
   }
 
-  // Method untuk kembali ke welcome message
   backToWelcome(chatId, messageId) {
     const welcomeMessage = 
-      `🤖 **SELAMAT DATANG DI TEMU!**\n\n` +
+      `🤖 **SELAMAT DATANG DI RANDOM CHAT BOT!**\n\n` +
       `✨ **Fitur Utama:**\n` +
       `• 💬 Obrolan random dengan pengguna lain\n` +
       `• 🖼️ Berbagi foto, video, audio, sticker, dan media lainnya\n` +
@@ -408,23 +465,29 @@ class UserHandlers {
       `• ⚡ Interface yang mudah dengan tombol cepat\n` +
       `• 🛡️ Sistem laporan untuk keamanan\n\n` +
       `📋 **Cara Menggunakan:**\n` +
-      `1. Tekan tombol "🔍 Mulai Cari Pasangan" di bawah\n` +
-      `2. Tunggu hingga menemukan pasangan obrolan\n` +
+      `1. Ketik /cari untuk mencari pasangan obrolan\n` +
+      `2. Tunggu hingga menemukan pasangan\n` +
       `3. Mulai mengobrol dengan bebas!\n` +
-      `4. Gunakan tombol "⏹️ Akhiri Obrolan" jika ingin berhenti\n\n` +
+      `4. Gunakan /stop untuk mengakhiri obrolan\n\n` +
+      `🔧 **Perintah Utama:**\n` +
+      `• /start - Tampilkan informasi ini\n` +
+      `• /cari - Mulai mencari pasangan obrolan\n` +
+      `• /stop - Keluar dari antrian/obrolan\n` +
+      `• /report - Laporkan pengguna bermasalah\n` +
+      `• /help - Tampilkan bantuan lengkap\n\n` +
       `⚠️ **Aturan Penting:**\n` +
       `• Bersikap sopan dan menghormati pengguna lain\n` +
       `• Tidak mengirim konten yang tidak pantas\n` +
       `• Gunakan fitur laporan jika ada masalah\n\n` +
-      `🚀 **Siap untuk memulai obrolan random?**`;
+      `🚀 **Siap untuk memulai? Ketik /cari**`;
 
     const keyboard = {
       inline_keyboard: [
         [
-          { text: '🔍 Mulai Cari Pasangan', callback_data: 'start_searching' }
+          { text: '🔍 Mulai Cari Pasangan', callback_data: 'start_cari' }
         ],
         [
-          { text: '❓ Bantuan', callback_data: 'show_help' },
+          { text: '❓ Bantuan Lengkap', callback_data: 'show_help' },
           { text: '📊 Info Bot', callback_data: 'show_info' }
         ]
       ]
@@ -439,65 +502,144 @@ class UserHandlers {
   }
 
   handleCancelSearch(userId, chatId, messageId) {
-    if (matchingService.isInQueue(userId)) {
-      matchingService.removeFromQueue(userId);
-      
-      this.bot.editMessageText('❌ Pencarian dibatalkan.', {
+    matchingService.removeFromQueue(userId);
+    
+    try {
+      this.bot.editMessageText('❌ Pencarian telah dibatalkan.', {
         chat_id: chatId,
         message_id: messageId
       });
-
-      // Show welcome message after a short delay
-      setTimeout(() => {
-        this.showWelcomeMessage(chatId);
-      }, 1000);
-    } else {
-      this.bot.editMessageText('❌ Anda tidak sedang dalam pencarian.', {
-        chat_id: chatId,
-        message_id: messageId
-      });
+    } catch (error) {
+      this.bot.sendMessage(chatId, '❌ Pencarian telah dibatalkan.');
     }
+    
+    setTimeout(() => {
+      this.showWelcomeMessage(chatId);
+    }, 2000);
   }
 
   handleEndChat(userId, chatId) {
-    if (matchingService.isInChat(userId)) {
-      const result = matchingService.endChat(userId, 'user_ended');
-      
-      if (result) {
-        // Notify partner
-        this.bot.sendMessage(result.partnerId, '💔 Pasangan Anda telah mengakhiri obrolan.');
-        this.showContinueOptions(result.partnerId, 'partner_left');
-        
-        // Notify user
-        this.bot.sendMessage(chatId, '⏹️ Obrolan telah dihentikan.');
-        this.showContinueOptions(userId, 'ended');
-      }
-    } else {
+    if (!matchingService.isInChat(userId)) {
       this.bot.sendMessage(chatId, '❌ Anda tidak sedang dalam obrolan.');
+      return;
+    }
+
+    const partnerId = matchingService.getPartner(userId);
+    const endResult = matchingService.endChat(userId, 'user_ended');
+    
+    if (endResult && partnerId) {
+      this.bot.sendMessage(chatId, '⏹️ Obrolan telah dihentikan.');
+      this.bot.sendMessage(partnerId, '👋 Pasangan Anda telah mengakhiri obrolan.');
+      
+      this.showContinueOptions(userId, 'ended');
+      this.showContinueOptions(partnerId, 'partner_left');
     }
   }
 
-  handleFindNew(userId, chatId, messageId) {
-    // Delete the continue options message
-    this.bot.deleteMessage(chatId, messageId);
+  handleReportFromCallback(userId, chatId) {
+    if (!matchingService.isInChat(userId)) {
+      this.bot.sendMessage(chatId, '❌ Anda tidak sedang dalam obrolan untuk melaporkan pengguna.');
+      return;
+    }
+
+    const partnerId = matchingService.getPartner(userId);
+    const userInfo = dataService.getUser(userId);
+    const partnerInfo = dataService.getUser(partnerId);
+
+    if (!partnerInfo) {
+      this.bot.sendMessage(chatId, '❌ Tidak dapat menemukan informasi pasangan Anda.');
+      return;
+    }
+
+    const report = dataService.addReport(userInfo, partnerInfo);
     
-    // Start new search
+    if (!report) {
+      this.bot.sendMessage(chatId, '❌ Gagal mengirim laporan. Silakan coba lagi.');
+      return;
+    }
+
+    this.bot.sendMessage(chatId, 
+      `✅ Laporan berhasil dikirim!\n\n` +
+      `📋 User yang dilaporkan: ${partnerInfo.name}\n` +
+      `🆔 ID Laporan: ${report.id}\n\n` +
+      `🔍 Admin akan meninjau laporan Anda.`
+    );
+
+    // Check for auto-block
+    const updatedPartnerInfo = dataService.getUser(partnerId);
+    if (updatedPartnerInfo && updatedPartnerInfo.reportCount >= 3) {
+      dataService.blockUser(partnerId);
+      
+      const endResult = matchingService.endChat(partnerId);
+      if (endResult) {
+        this.bot.sendMessage(partnerId, '🚫 Anda telah diblokir otomatis karena terlalu banyak laporan.');
+        this.bot.sendMessage(userId, '⚠️ Pasangan Anda telah diblokir otomatis. Obrolan dihentikan.');
+        
+        this.showContinueOptions(userId, 'partner_blocked');
+      }
+      
+      matchingService.removeFromQueue(partnerId);
+    } else {
+      this.sendReportToAdmin(report);
+    }
+  }
+
+  handleContinueSearch(userId, chatId, messageId) {
+    try {
+      this.bot.deleteMessage(chatId, messageId);
+    } catch (error) {
+      // Message might be too old to delete
+    }
+    
     this.startSearching(userId, chatId);
   }
 
-  handleShowProfile(userId, chatId) {
-    if (matchingService.isInChat(userId)) {
-      const partnerId = matchingService.getPartner(userId);
-      const partnerInfo = dataService.getUser(partnerId);
-      
-      if (partnerInfo) {
-        this.sendUserProfile(chatId, partnerInfo);
-      } else {
-        this.bot.sendMessage(chatId, '❌ Tidak dapat mengambil profil pasangan.');
-      }
-    } else {
-      this.bot.sendMessage(chatId, '❌ Anda harus sedang dalam obrolan untuk melihat profil.');
+  handleViewProfile(userId, chatId) {
+    if (!matchingService.isInChat(userId)) {
+      this.bot.sendMessage(chatId, '❌ Anda tidak sedang dalam obrolan.');
+      return;
     }
+
+    const partnerId = matchingService.getPartner(userId);
+    const partnerInfo = dataService.getUser(partnerId);
+
+    if (!partnerInfo) {
+      this.bot.sendMessage(chatId, '❌ Tidak dapat menemukan informasi pasangan Anda.');
+      return;
+    }
+
+    this.showUserProfile(chatId, partnerInfo);
+  }
+
+  showUserProfile(chatId, userInfo) {
+    const profileMessage = 
+      `👤 **PROFIL PASANGAN**\n\n` +
+      `📝 Nama: ${userInfo.name}\n` +
+      `🏷️ Username: @${userInfo.username}\n` +
+      `📅 Bergabung: ${helpers.formatDate(userInfo.joinDate)}\n` +
+      `🌐 Bahasa: ${userInfo.language || 'Tidak diketahui'}\n\n` +
+      `💡 *Informasi ini hanya ditampilkan selama obrolan berlangsung.*`;
+
+    // Try to get user's profile photo
+    this.bot.getUserProfilePhotos(userInfo.id, { limit: 1 })
+      .then(photos => {
+        if (photos.total_count > 0) {
+          const fileId = photos.photos.file_id;
+          this.bot.sendPhoto(chatId, fileId, {
+            caption: profileMessage,
+            parse_mode: 'Markdown'
+          });
+        } else {
+          this.bot.sendMessage(chatId, profileMessage, {
+            parse_mode: 'Markdown'
+          });
+        }
+      })
+      .catch(() => {
+        this.bot.sendMessage(chatId, profileMessage, {
+          parse_mode: 'Markdown'
+        });
+      });
   }
 
   showContinueOptions(userId, reason = 'ended') {
@@ -517,7 +659,7 @@ class UserHandlers {
     const keyboard = {
       inline_keyboard: [
         [
-          { text: '🔍 Cari Pasangan Baru', callback_data: 'start_searching' },
+          { text: '🔍 Cari Pasangan Baru', callback_data: 'start_cari' },
           { text: '🏠 Kembali ke Menu', callback_data: 'back_to_main_menu' }
         ],
         [
@@ -531,85 +673,6 @@ class UserHandlers {
     });
   }
 
-  // Handle chat matched
-  onChatMatched(user1Id, user2Id) {
-    const user1Info = dataService.getUser(user1Id);
-    const user2Info = dataService.getUser(user2Id);
-
-    if (!user1Info || !user2Info) {
-      console.error('User info not found for matched users');
-      return;
-    }
-
-    // Send match notification to both users
-    this.sendMatchNotification(user1Id, user2Info);
-    this.sendMatchNotification(user2Id, user1Info);
-  }
-
-  sendMatchNotification(userId, partnerInfo) {
-    const matchMessage = 
-      `🎉 **PASANGAN DITEMUKAN!**\n\n` +
-      `👤 **Profil Pasangan:**\n` +
-      `• Nama: ${partnerInfo.name}\n` +
-      `• Username: @${partnerInfo.username}\n` +
-      `• Bergabung: ${helpers.formatDate(partnerInfo.joinDate)}\n\n` +
-      `💬 Anda sekarang terhubung! Mulai percakapan dengan mengirim pesan.\n\n` +
-      `💡 **Tips:** Bersikap sopan dan nikmati obrolan Anda!`;
-
-    const chatKeyboard = {
-      inline_keyboard: [
-        [
-          { text: '👤 Lihat Profil', callback_data: 'show_profile' },
-          { text: '⏹️ Akhiri Obrolan', callback_data: 'end_chat' }
-        ]
-      ]
-    };
-
-    this.bot.sendMessage(userId, matchMessage, {
-      parse_mode: 'Markdown',
-      reply_markup: chatKeyboard
-    });
-
-    // Try to send partner's profile photo
-    this.sendPartnerProfilePhoto(userId, partnerInfo.id);
-  }
-
-  async sendPartnerProfilePhoto(userId, partnerId) {
-    try {
-      const photos = await this.bot.getUserProfilePhotos(partnerId, { limit: 1 });
-      
-      if (photos.photos && photos.photos.length > 0) {
-        const photo = photos.photos[0];
-        const fileId = photo[photo.length - 1].file_id; // Get highest resolution
-        
-        await this.bot.sendPhoto(userId, fileId, {
-          caption: '📸 Foto profil pasangan Anda'
-        });
-      }
-    } catch (error) {
-      console.log('Could not send partner profile photo:', error.message);
-      // Not critical, continue without photo
-    }
-  }
-
-  sendUserProfile(chatId, userInfo) {
-    const profileMessage = 
-      `👤 **PROFIL PENGGUNA**\n\n` +
-      `• Nama: ${userInfo.name}\n` +
-      `• Username: @${userInfo.username}\n` +
-      `• Bergabung: ${helpers.formatDate(userInfo.joinDate)}\n` +
-      `• Terakhir aktif: ${helpers.formatTimeAgo(userInfo.lastActive || userInfo.joinDate)}\n` +
-      `• Bahasa: ${userInfo.language || 'Tidak diketahui'}`;
-
-    this.bot.sendMessage(chatId, profileMessage, {
-      parse_mode: 'Markdown'
-    });
-
-    // Try to send user's profile photo
-    this.sendPartnerProfilePhoto(chatId, userInfo.id);
-  }
-
-  // Handle regular text messages
   handleMessage(msg) {
     const userId = msg.from.id;
     const chatId = msg.chat.id;
@@ -620,26 +683,30 @@ class UserHandlers {
       return;
     }
 
-    // Update user last active
-    dataService.updateUser(userId, { lastActive: new Date().toISOString() });
-
-    if (matchingService.isInChat(userId)) {
-      const partnerId = matchingService.getPartner(userId);
-      
-      if (partnerId) {
-        // Forward message to partner
-        this.bot.sendMessage(partnerId, msg.text);
-      }
-    } else {
-      // User is not in chat, show help
+    // Check if user is in chat
+    if (!matchingService.isInChat(userId)) {
       this.bot.sendMessage(chatId, 
-        `❌ Anda tidak sedang dalam obrolan.\n\n` +
-        `Gunakan /start untuk memulai pencarian pasangan.`
+        '❌ Anda tidak sedang dalam obrolan.\n\n' +
+        'Gunakan /cari untuk mencari pasangan obrolan.'
       );
+      return;
+    }
+
+    const partnerId = matchingService.getPartner(userId);
+    if (!partnerId) {
+      this.bot.sendMessage(chatId, '❌ Tidak dapat menemukan pasangan Anda.');
+      return;
+    }
+
+    // Forward message to partner
+    try {
+      this.bot.sendMessage(partnerId, msg.text);
+    } catch (error) {
+      console.error('Error forwarding message:', error);
+      this.bot.sendMessage(chatId, '❌ Gagal mengirim pesan ke pasangan Anda.');
     }
   }
 
-  // Handle media messages (photo, video, audio, etc.)
   handleMediaMessage(msg, mediaType) {
     const userId = msg.from.id;
     const chatId = msg.chat.id;
@@ -650,86 +717,149 @@ class UserHandlers {
       return;
     }
 
-    // Update user last active
-    dataService.updateUser(userId, { lastActive: new Date().toISOString() });
-
-    if (matchingService.isInChat(userId)) {
-      const partnerId = matchingService.getPartner(userId);
-      
-      if (partnerId) {
-        // Forward media to partner based on type
-        this.forwardMediaMessage(msg, partnerId, mediaType);
-      }
-    } else {
+    // Check if user is in chat
+    if (!matchingService.isInChat(userId)) {
       this.bot.sendMessage(chatId, 
-        `❌ Anda tidak sedang dalam obrolan.\n\n` +
-        `Gunakan /start untuk memulai pencarian pasangan.`
+        '❌ Anda tidak sedang dalam obrolan.\n\n' +
+        'Gunakan /cari untuk mencari pasangan obrolan.'
       );
+      return;
     }
-  }
 
-  forwardMediaMessage(msg, partnerId, mediaType) {
+    const partnerId = matchingService.getPartner(userId);
+    if (!partnerId) {
+      this.bot.sendMessage(chatId, '❌ Tidak dapat menemukan pasangan Anda.');
+      return;
+    }
+
+    // Forward media to partner
     try {
       switch (mediaType) {
         case 'photo':
-          const photo = msg.photo[msg.photo.length - 1]; // Get highest resolution
+          const photo = msg.photo[msg.photo.length - 1];
           this.bot.sendPhoto(partnerId, photo.file_id, {
             caption: msg.caption || ''
           });
           break;
-
         case 'video':
           this.bot.sendVideo(partnerId, msg.video.file_id, {
             caption: msg.caption || ''
           });
           break;
-
         case 'audio':
           this.bot.sendAudio(partnerId, msg.audio.file_id, {
             caption: msg.caption || ''
           });
           break;
-
         case 'voice':
           this.bot.sendVoice(partnerId, msg.voice.file_id);
           break;
-
         case 'document':
           this.bot.sendDocument(partnerId, msg.document.file_id, {
             caption: msg.caption || ''
           });
           break;
-
         case 'sticker':
           this.bot.sendSticker(partnerId, msg.sticker.file_id);
           break;
-
-        case 'animation':
-          this.bot.sendAnimation(partnerId, msg.animation.file_id, {
-            caption: msg.caption || ''
-          });
-          break;
-
         case 'video_note':
           this.bot.sendVideoNote(partnerId, msg.video_note.file_id);
           break;
-
         case 'location':
           this.bot.sendLocation(partnerId, msg.location.latitude, msg.location.longitude);
           break;
-
         case 'contact':
           this.bot.sendContact(partnerId, msg.contact.phone_number, msg.contact.first_name, {
             last_name: msg.contact.last_name || ''
           });
           break;
-
+        case 'animation':
+          this.bot.sendAnimation(partnerId, msg.animation.file_id, {
+            caption: msg.caption || ''
+          });
+          break;
         default:
-          console.log(`Unknown media type: ${mediaType}`);
+          this.bot.sendMessage(chatId, '❌ Tipe media tidak didukung.');
+          break;
       }
     } catch (error) {
       console.error(`Error forwarding ${mediaType}:`, error);
+      this.bot.sendMessage(chatId, `❌ Gagal mengirim ${mediaType} ke pasangan Anda.`);
     }
+  }
+
+  // Method untuk mengirim laporan ke admin
+  sendReportToAdmin(report) {
+    if (!helpers.isValidAdminId()) {
+      return;
+    }
+
+    const adminId = helpers.getAdminId();
+    const reportMessage = 
+      `🚨 **LAPORAN BARU**\n\n` +
+      `👤 **Pelapor:**\n` +
+      `├ Nama: ${report.reporter.name}\n` +
+      `├ Username: @${report.reporter.username}\n` +
+      `└ ID: \`${report.reporter.id}\`\n\n` +
+      `🎯 **Dilaporkan:**\n` +
+      `├ Nama: ${report.reported.name}\n` +
+      `├ Username: @${report.reported.username}\n` +
+      `└ ID: \`${report.reported.id}\`\n\n` +
+      `📋 **Detail:**\n` +
+      `├ ID Laporan: ${report.id}\n` +
+      `├ Alasan: ${report.reason || 'Tidak disebutkan'}\n` +
+      `├ Waktu: ${helpers.formatDateTime(report.timestamp)}\n` +
+      `└ Status: ${report.status}\n\n` +
+      `📊 **Statistik User:**\n` +
+      `└ Total laporan: ${dataService.getUser(report.reported.id)?.reportCount || 0}`;
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '🚫 Block User', callback_data: `admin_block_${report.reported.id}_${report.id}` },
+          { text: '✅ Ignore', callback_data: `admin_ignore_${report.id}` }
+        ],
+        [
+          { text: '📋 View History', callback_data: `admin_history_${report.reported.id}` },
+          { text: '⚠️ Send Warning', callback_data: `admin_warn_${report.reported.id}` }
+        ]
+      ]
+    };
+
+    this.bot.sendMessage(adminId, reportMessage, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
+  }
+
+  // Method untuk menampilkan info ketika match ditemukan
+  showMatchFound(userId, partnerInfo) {
+    const matchMessage = 
+      `🎉 **PASANGAN DITEMUKAN!**\n\n` +
+      `👤 **Pasangan Anda:**\n` +
+      `├ Nama: ${partnerInfo.name}\n` +
+      `├ Username: @${partnerInfo.username}\n` +
+      `└ Bergabung: ${helpers.formatDate(partnerInfo.joinDate)}\n\n` +
+      `💬 **Obrolan dimulai sekarang!**\n` +
+      `Kirim pesan, foto, video, atau media lainnya untuk memulai percakapan.\n\n` +
+      `⚡ **Tip:** Gunakan tombol di bawah untuk aksi cepat!`;
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '⏹️ Akhiri Obrolan', callback_data: 'end_chat' },
+          { text: '🚨 Laporkan', callback_data: 'report_user' }
+        ],
+        [
+          { text: '👤 Lihat Profil', callback_data: 'view_profile' }
+        ]
+      ]
+    };
+
+    this.bot.sendMessage(userId, matchMessage, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
   }
 }
 
