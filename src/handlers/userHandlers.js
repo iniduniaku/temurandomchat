@@ -123,6 +123,17 @@ class UserHandlers {
       case 'stop_chatting':
         this.handleStopChatting(chatId, userId);
         break;
+      case 'end_current_chat':
+        this.handleEndCurrentChat(chatId, userId);
+        break;
+      case 'report_current_partner':
+        this.handleReportCurrentPartner(chatId, userId);
+        break;
+      default:
+        if (data.startsWith('admin_')) {
+          this.handleAdminCallback(callbackQuery);
+        }
+        break;
     }
   }
 
@@ -158,6 +169,118 @@ class UserHandlers {
       `Gunakan /start kapan saja untuk mulai obrolan lagi.\n` +
       `Gunakan /help untuk melihat bantuan.`
     );
+  }
+
+  handleEndCurrentChat(chatId, userId) {
+    if (matchingService.isInChat(userId)) {
+      const chatResult = matchingService.endChat(userId);
+      if (chatResult) {
+        this.bot.sendMessage(userId, '🔚 Obrolan telah dihentikan.');
+        this.bot.sendMessage(chatResult.partnerId, '🔚 Pasangan Anda telah mengakhiri obrolan.');
+        
+        // Show continue options to both users
+        this.showContinueOptions(userId, 'chat_ended');
+        this.showContinueOptions(chatResult.partnerId, 'partner_left');
+      }
+    } else {
+      this.bot.sendMessage(chatId, '❌ Anda tidak sedang dalam obrolan.');
+    }
+  }
+
+  handleReportCurrentPartner(chatId, userId) {
+    if (!matchingService.isInChat(userId)) {
+      this.bot.sendMessage(chatId, '❌ Anda tidak sedang dalam obrolan.');
+      return;
+    }
+
+    // Get user info from dataService
+    const userInfo = dataService.getUser(userId);
+    if (!userInfo) {
+      this.bot.sendMessage(chatId, '❌ Tidak dapat memproses laporan.');
+      return;
+    }
+
+    // Create a fake message object for handleReport
+    const fakeMsg = {
+      chat: { id: chatId },
+      from: { 
+        id: userId,
+        first_name: userInfo.name,
+        username: userInfo.username
+      }
+    };
+    
+    this.handleReport(fakeMsg);
+  }
+
+  handleAdminCallback(callbackQuery) {
+    const data = callbackQuery.data;
+    const adminId = callbackQuery.from.id;
+    
+    // Verify admin
+    if (adminId.toString() !== process.env.ADMIN_ID) {
+      this.bot.answerCallbackQuery(callbackQuery.id, {
+        text: '❌ Akses ditolak',
+        show_alert: true
+      });
+      return;
+    }
+
+    if (data.startsWith('admin_block_')) {
+      // Handle admin block action
+      const parts = data.split('_');
+      const targetUserId = parts[2];
+      const reportId = parts[3];
+      
+      // Block user
+      dataService.blockUser(parseInt(targetUserId));
+      
+      // End any active chat
+      const chatResult = matchingService.endChat(parseInt(targetUserId));
+      if (chatResult) {
+        this.bot.sendMessage(chatResult.partnerId, '🚫 Pasangan Anda telah diblokir. Obrolan dihentikan.');
+        this.showContinueOptions(chatResult.partnerId, 'partner_blocked');
+      }
+      
+      this.bot.editMessageText(
+        callbackQuery.message.text + '\n\n✅ User telah diblokir!',
+        {
+          chat_id: callbackQuery.message.chat.id,
+          message_id: callbackQuery.message.message_id,
+          parse_mode: 'Markdown'
+        }
+      );
+    } else if (data.startsWith('admin_ignore_')) {
+      const reportId = data.split('_')[2];
+      
+      this.bot.editMessageText(
+        callbackQuery.message.text + '\n\n❌ Laporan diabaikan.',
+        {
+          chat_id: callbackQuery.message.chat.id,
+          message_id: callbackQuery.message.message_id,
+          parse_mode: 'Markdown'
+        }
+      );
+    } else if (data.startsWith('admin_history_')) {
+      const targetUserId = data.split('_')[2];
+      const userInfo = dataService.getUser(parseInt(targetUserId));
+      
+      if (userInfo) {
+        const historyMessage = 
+          `📋 RIWAYAT PENGGUNA\n\n` +
+          `👤 Nama: ${userInfo.name}\n` +
+          `🆔 Username: @${userInfo.username || 'Tidak ada'}\n` +
+          `🔢 ID: \`${userInfo.id}\`\n` +
+          `📅 Bergabung: ${helpers.formatDate(userInfo.joinDate)}\n` +
+          `⏰ Terakhir aktif: ${helpers.formatTimeAgo(userInfo.lastActive)}\n` +
+          `🚨 Total laporan: ${userInfo.reportCount || 0}\n` +
+          `🚫 Status: ${userInfo.blocked ? 'Diblokir' : 'Aktif'}`;
+        
+        this.bot.sendMessage(callbackQuery.message.chat.id, historyMessage, {
+          parse_mode: 'Markdown'
+        });
+      }
+    }
   }
 
   async handleMatch(user1Id, user2Id) {
@@ -389,55 +512,6 @@ class UserHandlers {
       `• Auto-timeout untuk obrolan tidak aktif`;
 
     this.bot.sendMessage(chatId, helpMessage);
-  }
-
-  // Handle additional callback queries for inline buttons
-  handleAdditionalCallbacks(callbackQuery) {
-    const chatId = callbackQuery.message.chat.id;
-    const userId = callbackQuery.from.id;
-    const data = callbackQuery.data;
-
-    this.bot.answerCallbackQuery(callbackQuery.id);
-
-    switch (data) {
-      case 'end_current_chat':
-        if (matchingService.isInChat(userId)) {
-          const chatResult = matchingService.endChat(userId);
-          if (chatResult) {
-            this.bot.sendMessage(userId, '🔚 Obrolan telah dihentikan.');
-            this.bot.sendMessage(chatResult.partnerId, '🔚 Pasangan Anda telah mengakhiri obrolan.');
-            
-            this.showContinueOptions(userId, 'chat_ended');
-            this.showContinueOptions(chatResult.partnerId, 'partner_left');
-          }
-        } else {
-          this.bot.sendMessage(chatId, '❌ Anda tidak sedang dalam obrolan.');
-        }
-        break;
-        
-      case 'report_current_partner':
-        if (matchingService.isInChat(userId)) {
-          // Get user info from dataService instead of creating fake message
-          const userInfo = dataService.getUser(userId);
-          if (userInfo) {
-            // Create a fake message object for handleReport
-            const fakeMsg = {
-              chat: { id: chatId },
-              from: { 
-                id: userId,
-                first_name: userInfo.name,
-                username: userInfo.username
-              }
-            };
-            this.handleReport(fakeMsg);
-          } else {
-            this.bot.sendMessage(chatId, '❌ Tidak dapat memproses laporan.');
-          }
-        } else {
-          this.bot.sendMessage(chatId, '❌ Anda tidak sedang dalam obrolan.');
-        }
-        break;
-    }
   }
 
   // Handle media forwarding
