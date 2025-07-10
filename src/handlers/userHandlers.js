@@ -379,10 +379,7 @@ class UserHandlers {
       `• Sistem keamanan dengan fitur laporan\n` +
       `• Auto-cleanup data untuk performa optimal\n` +
       `• Foto profil dan info pengguna\n\n` +
-      `💻 **Teknologi:**\n` +
-      `• Node.js + Telegram Bot API\n` +
-      `• Real-time matching system\n` +
-      `• JSON-based data storage\n\n` +
+      
       `📝 **Versi:** 2.0.0\n` +
       `📅 **Update:** ${new Date().toLocaleDateString('id-ID')}`;
 
