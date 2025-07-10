@@ -11,11 +11,14 @@ const bot = new TelegramBot(config.telegram.token, { polling: true });
 const userHandlers = new UserHandlers(bot);
 const adminHandlers = new AdminHandlers(bot);
 
+
 // User command handlers
 bot.onText(/\/start/, (msg) => userHandlers.handleStart(msg));
+bot.onText(/\/cari/, (msg) => userHandlers.handleCari(msg));  // TAMBAHAN BARU
 bot.onText(/\/stop/, (msg) => userHandlers.handleStop(msg));
 bot.onText(/\/report/, (msg) => userHandlers.handleReport(msg));
 bot.onText(/\/help/, (msg) => userHandlers.handleHelp(msg));
+
 
 // Admin command handlers
 bot.onText(/\/block (.+)/, (msg, match) => adminHandlers.handleBlock(msg, match));
