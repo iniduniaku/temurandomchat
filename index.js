@@ -40,149 +40,260 @@ bot.onText(/\/maintenance/, (msg) => {
     dataService.performMaintenance();
     bot.sendMessage(chatId, '✅ Maintenance selesai!');
   } catch (error) {
+    console.error('Maintenance error:', error);
     bot.sendMessage(chatId, `❌ Error during maintenance: ${error.message}`);
   }
 });
 
-// Enhanced callback query handler
+// Callback query handler
 bot.on('callback_query', (callbackQuery) => {
   const data = callbackQuery.data;
   
-  // Handle user callback queries
-  if (['find_new_partner', 'stop_chatting', 'end_current_chat', 'report_current_partner'].includes(data)) {
+  try {
+    // Handle admin callback queries first
+    if (data.startsWith('admin_')) {
+      // Check if adminHandlers has handleAdminCallback method
+      if (adminHandlers.handleAdminCallback && typeof adminHandlers.handleAdminCallback === 'function') {
+        adminHandlers.handleAdminCallback(callbackQuery);
+      } else {
+        // Fallback to userHandlers if admin doesn't have the method
+        userHandlers.handleCallbackQuery(callbackQuery);
+      }
+      return;
+    }
+    
+    // Handle all user callback queries through userHandlers
     userHandlers.handleCallbackQuery(callbackQuery);
-    return;
-  }
-  
-  // Handle admin callback queries
-  if (data.startsWith('admin_')) {
-    adminHandlers.handleAdminCallback(callbackQuery);
-    return;
-  }
-  
-  // Handle additional user callbacks
-  if (['end_current_chat', 'report_current_partner'].includes(data)) {
-    userHandlers.handleAdditionalCallbacks(callbackQuery);
-    return;
+  } catch (error) {
+    console.error('Callback query error:', error);
+    bot.answerCallbackQuery(callbackQuery.id, {
+      text: '❌ Terjadi kesalahan',
+      show_alert: true
+    });
   }
 });
 
 // Message handler
 bot.on('text', (msg) => {
-  // Skip if message is a command
-  if (msg.text.startsWith('/')) return;
-  
-  userHandlers.handleMessage(msg);
+  try {
+    // Skip if message is a command
+    if (msg.text && msg.text.startsWith('/')) return;
+    
+    userHandlers.handleMessage(msg);
+  } catch (error) {
+    console.error('Text message error:', error);
+    bot.sendMessage(msg.chat.id, '❌ Terjadi kesalahan saat memproses pesan.');
+  }
 });
 
-// Photo message handler (forward photos in chat)
+// Photo message handler
 bot.on('photo', (msg) => {
-  const userId = msg.from.id;
-  
-  if (dataService.isUserBlocked(userId)) {
-    bot.sendMessage(msg.chat.id, '❌ Anda telah diblokir dari menggunakan bot ini.');
-    return;
-  }
-
-  const matchingService = require('./src/services/matchingService');
-  
-  if (matchingService.isInChat(userId)) {
-    const partnerId = matchingService.getPartner(userId);
-    const userInfo = dataService.getUser(userId);
-    
-    // Forward photo to partner
-    bot.sendPhoto(partnerId, msg.photo[msg.photo.length - 1].file_id, {
-      caption: msg.caption ? `${userInfo.name}: ${msg.caption}` : `📷 Foto dari ${userInfo.name}`
-    });
-  } else {
-    bot.sendMessage(msg.chat.id, '❌ Anda tidak sedang dalam obrolan.');
+  try {
+    userHandlers.handleMediaMessage(msg, 'photo');
+  } catch (error) {
+    console.error('Photo message error:', error);
+    bot.sendMessage(msg.chat.id, '❌ Gagal mengirim foto.');
   }
 });
 
-// Document/sticker/voice message handlers
-bot.on('document', (msg) => forwardMediaMessage(msg, 'document'));
-bot.on('sticker', (msg) => forwardMediaMessage(msg, 'sticker'));
-bot.on('voice', (msg) => forwardMediaMessage(msg, 'voice'));
-bot.on('video', (msg) => forwardMediaMessage(msg, 'video'));
-bot.on('audio', (msg) => forwardMediaMessage(msg, 'audio'));
-
-function forwardMediaMessage(msg, mediaType) {
-  const userId = msg.from.id;
-  
-  if (dataService.isUserBlocked(userId)) {
-    bot.sendMessage(msg.chat.id, '❌ Anda telah diblokir dari menggunakan bot ini.');
-    return;
+// Document message handler
+bot.on('document', (msg) => {
+  try {
+    userHandlers.handleMediaMessage(msg, 'document');
+  } catch (error) {
+    console.error('Document message error:', error);
+    bot.sendMessage(msg.chat.id, '❌ Gagal mengirim dokumen.');
   }
+});
 
-  const matchingService = require('./src/services/matchingService');
-  
-  if (matchingService.isInChat(userId)) {
-    const partnerId = matchingService.getPartner(userId);
-    const userInfo = dataService.getUser(userId);
-    
-    let mediaOptions = {};
-    let mediaId;
-    
-    switch (mediaType) {
-      case 'document':
-        mediaId = msg.document.file_id;
-        mediaOptions.caption = `📎 Dokumen dari ${userInfo.name}`;
-        bot.sendDocument(partnerId, mediaId, mediaOptions);
-        break;
-      case 'sticker':
-        mediaId = msg.sticker.file_id;
-        bot.sendSticker(partnerId, mediaId);
-        break;
-      case 'voice':
-        mediaId = msg.voice.file_id;
-        mediaOptions.caption = `🎤 Pesan suara dari ${userInfo.name}`;
-        bot.sendVoice(partnerId, mediaId, mediaOptions);
-        break;
-      case 'video':
-        mediaId = msg.video.file_id;
-        mediaOptions.caption = msg.caption ? `${userInfo.name}: ${msg.caption}` : `🎥 Video dari ${userInfo.name}`;
-        bot.sendVideo(partnerId, mediaId, mediaOptions);
-        break;
-      case 'audio':
-        mediaId = msg.audio.file_id;
-        mediaOptions.caption = `🎵 Audio dari ${userInfo.name}`;
-        bot.sendAudio(partnerId, mediaId, mediaOptions);
-        break;
-    }
-  } else {
-    bot.sendMessage(msg.chat.id, '❌ Anda tidak sedang dalam obrolan.');
+// Sticker message handler
+bot.on('sticker', (msg) => {
+  try {
+    userHandlers.handleMediaMessage(msg, 'sticker');
+  } catch (error) {
+    console.error('Sticker message error:', error);
+    bot.sendMessage(msg.chat.id, '❌ Gagal mengirim sticker.');
   }
-}
+});
+
+// Voice message handler
+bot.on('voice', (msg) => {
+  try {
+    userHandlers.handleMediaMessage(msg, 'voice');
+  } catch (error) {
+    console.error('Voice message error:', error);
+    bot.sendMessage(msg.chat.id, '❌ Gagal mengirim pesan suara.');
+  }
+});
+
+// Video message handler
+bot.on('video', (msg) => {
+  try {
+    userHandlers.handleMediaMessage(msg, 'video');
+  } catch (error) {
+    console.error('Video message error:', error);
+    bot.sendMessage(msg.chat.id, '❌ Gagal mengirim video.');
+  }
+});
+
+// Audio message handler
+bot.on('audio', (msg) => {
+  try {
+    userHandlers.handleMediaMessage(msg, 'audio');
+  } catch (error) {
+    console.error('Audio message error:', error);
+    bot.sendMessage(msg.chat.id, '❌ Gagal mengirim audio.');
+  }
+});
+
+// Video note message handler
+bot.on('video_note', (msg) => {
+  try {
+    userHandlers.handleMediaMessage(msg, 'video_note');
+  } catch (error) {
+    console.error('Video note message error:', error);
+    bot.sendMessage(msg.chat.id, '❌ Gagal mengirim video note.');
+  }
+});
+
+// Location message handler
+bot.on('location', (msg) => {
+  try {
+    userHandlers.handleMediaMessage(msg, 'location');
+  } catch (error) {
+    console.error('Location message error:', error);
+    bot.sendMessage(msg.chat.id, '❌ Gagal mengirim lokasi.');
+  }
+});
+
+// Contact message handler
+bot.on('contact', (msg) => {
+  try {
+    userHandlers.handleMediaMessage(msg, 'contact');
+  } catch (error) {
+    console.error('Contact message error:', error);
+    bot.sendMessage(msg.chat.id, '❌ Gagal mengirim kontak.');
+  }
+});
+
+// Animation/GIF message handler
+bot.on('animation', (msg) => {
+  try {
+    userHandlers.handleMediaMessage(msg, 'animation');
+  } catch (error) {
+    console.error('Animation message error:', error);
+    bot.sendMessage(msg.chat.id, '❌ Gagal mengirim animasi.');
+  }
+});
 
 // Error handling
 bot.on('polling_error', (error) => {
   console.error('Polling error:', error);
 });
 
-// Periodic maintenance (every 24 hours)
-setInterval(() => {
-  console.log('Running automatic maintenance...');
-  dataService.performMaintenance();
-}, 24 * 60 * 60 * 1000);
-
-// Graceful shutdown
-process.on('SIGINT', () => {
-  console.log('\n🛑 Bot sedang shutdown...');
-  bot.stopPolling();
-  process.exit(0);
+bot.on('webhook_error', (error) => {
+  console.error('Webhook error:', error);
 });
 
-console.log('🤖 Telegram Random Chat Bot Started!');
-console.log('📋 Fitur yang tersedia:');
-console.log('   ✅ Random chat matching dengan foto profil dan info lengkap');
-console.log('   ✅ Pilihan lanjut setelah obrolan berakhir');
-console.log('   ✅ Forward semua jenis media (foto, video, audio, sticker, dll)');
-console.log('   ✅ Interactive admin panel untuk laporan');
-console.log('   ✅ One-click block/ignore untuk admin');
-console.log('   ✅ User history dan warning system');
-console.log('   ✅ Auto-block setelah 3 laporan');
-console.log('   ✅ Penyimpanan data dalam file JSON dengan auto-cleanup');
-console.log('   ✅ Statistik bot untuk admin');
-console.log('   ✅ Automatic data maintenance');
-console.log('\n📁 Data disimpan di folder ./data/');
-console.log('⚙️  Konfigurasi dapat diubah di ./config/config.js');
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// Periodic maintenance (every 24 hours)
+const maintenanceInterval = setInterval(() => {
+  console.log('Running automatic maintenance...');
+  try {
+    dataService.performMaintenance();
+    console.log('✅ Automatic maintenance completed');
+  } catch (error) {
+    console.error('❌ Automatic maintenance failed:', error);
+  }
+}, 24 * 60 * 60 * 1000);
+
+// Periodic queue cleanup (every 5 minutes)
+const queueCleanupInterval = setInterval(() => {
+  try {
+    const matchingService = require('./src/services/matchingService');
+    if (matchingService.cleanupInactiveChats) {
+      matchingService.cleanupInactiveChats();
+    }
+  } catch (error) {
+    console.error('Queue cleanup error:', error);
+  }
+}, 5 * 60 * 1000);
+
+// Graceful shutdown
+function gracefulShutdown() {
+  console.log('\n🛑 Bot sedang shutdown...');
+  
+  // Clear intervals
+  if (maintenanceInterval) clearInterval(maintenanceInterval);
+  if (queueCleanupInterval) clearInterval(queueCleanupInterval);
+  
+  // Stop bot polling
+  bot.stopPolling()
+    .then(() => {
+      console.log('✅ Bot polling stopped');
+      process.exit(0);
+    })
+    .catch((error) => {
+      console.error('❌ Error stopping bot:', error);
+      process.exit(1);
+    });
+}
+
+// Handle shutdown signals
+process.on('SIGINT', gracefulShutdown);
+process.on('SIGTERM', gracefulShutdown);
+
+// Bot startup message
+bot.getMe()
+  .then((botInfo) => {
+    console.log('🤖 Telegram Random Chat Bot Started!');
+    console.log(`📋 Bot Info: @${botInfo.username} (${botInfo.first_name})`);
+    console.log('📋 Fitur yang tersedia:');
+    console.log('   ✅ Random chat matching dengan foto profil dan info lengkap');
+    console.log('   ✅ Inline keyboard untuk quick actions');
+    console.log('   ✅ Pilihan lanjut setelah obrolan berakhir');
+    console.log('   ✅ Forward semua jenis media (foto, video, audio, sticker, dll)');
+    console.log('   ✅ Interactive admin panel untuk laporan');
+    console.log('   ✅ One-click block/ignore untuk admin');
+    console.log('   ✅ User history dan warning system');
+    console.log('   ✅ Auto-block setelah 3 laporan');
+    console.log('   ✅ Penyimpanan data dalam file JSON dengan auto-cleanup');
+    console.log('   ✅ Statistik bot untuk admin');
+    console.log('   ✅ Automatic data maintenance');
+    console.log('   ✅ Queue cleanup untuk chat tidak aktif');
+    console.log('\n📁 Data disimpan di folder ./data/');
+    console.log('⚙️  Konfigurasi dapat diubah di ./config/config.js');
+    console.log(`👨‍💼 Admin ID: ${config.telegram.adminId}`);
+    console.log('🚀 Bot siap digunakan!\n');
+  })
+  .catch((error) => {
+    console.error('❌ Error getting bot info:', error);
+    console.log('🤖 Telegram Random Chat Bot Started! (dengan warning)');
+    console.log('📋 Fitur yang tersedia:');
+    console.log('   ✅ Random chat matching dengan foto profil dan info lengkap');
+    console.log('   ✅ Inline keyboard untuk quick actions');
+    console.log('   ✅ Pilihan lanjut setelah obrolan berakhir');
+    console.log('   ✅ Forward semua jenis media (foto, video, audio, sticker, dll)');
+    console.log('   ✅ Interactive admin panel untuk laporan');
+    console.log('   ✅ One-click block/ignore untuk admin');
+    console.log('   ✅ User history dan warning system');
+    console.log('   ✅ Auto-block setelah 3 laporan');
+    console.log('   ✅ Penyimpanan data dalam file JSON dengan auto-cleanup');
+    console.log('   ✅ Statistik bot untuk admin');
+    console.log('   ✅ Automatic data maintenance');
+    console.log('   ✅ Queue cleanup untuk chat tidak aktif');
+    console.log('\n📁 Data disimpan di folder ./data/');
+    console.log('⚙️  Konfigurasi dapat diubah di ./config/config.js');
+    console.log('🚀 Bot siap digunakan!\n');
+  });
+
+// Export bot for testing purposes
+module.exports = bot;
