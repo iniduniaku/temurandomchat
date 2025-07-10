@@ -163,6 +163,105 @@ class AdminHandlers {
     });
   }
 
+  // TAMBAHAN: Method untuk handle command /maintenance
+  handleMaintenance(msg) {
+    const adminId = msg.from.id;
+    const chatId = msg.chat.id;
+
+    if (!helpers.isAdmin(adminId)) {
+      this.bot.sendMessage(chatId, '❌ Anda tidak memiliki akses admin.');
+      return;
+    }
+
+    this.bot.sendMessage(chatId, '🔧 Memulai maintenance data...');
+    
+    try {
+      dataService.performMaintenance();
+      
+      // Get stats after maintenance
+      const stats = dataService.getStats();
+      const maintenanceReport = 
+        `✅ MAINTENANCE SELESAI!\n\n` +
+        `📊 Status setelah maintenance:\n` +
+        `├ Total users: ${stats.totalUsers}\n` +
+        `├ Blocked users: ${stats.blockedUsers}\n` +
+        `├ Total reports: ${stats.totalReports}\n` +
+        `└ Pending reports: ${stats.pendingReports}\n\n` +
+        `🕐 Completed at: ${helpers.formatDateTime(new Date().toISOString())}`;
+      
+      this.bot.sendMessage(chatId, maintenanceReport);
+    } catch (error) {
+      console.error('Maintenance error:', error);
+      this.bot.sendMessage(chatId, `❌ Error during maintenance: ${error.message}`);
+    }
+  }
+
+  handleAdminHelp(msg) {
+    const adminId = msg.from.id;
+    const chatId = msg.chat.id;
+
+    if (!helpers.isAdmin(adminId)) {
+      this.bot.sendMessage(chatId, '❌ Anda tidak memiliki akses admin.');
+      return;
+    }
+
+    const adminHelp = 
+      `🔧 PANDUAN ADMIN BOT RANDOM CHAT\n\n` +
+      `📱 PERINTAH COMMAND-BASED:\n` +
+      `/block [user_id] - Blokir pengguna\n` +
+      `/unblock [user_id] - Unblock pengguna\n` +
+      `/stats - Lihat statistik bot\n` +
+      `/reports - Lihat laporan terbaru\n` +
+      `/maintenance - Jalankan maintenance\n` +
+      `/adminhelp - Bantuan admin\n\n` +
+      `🖱️ FITUR INTERACTIVE:\n\n` +
+      `📨 Laporan Otomatis:\n` +
+      `• Saat ada laporan, admin dapat:\n` +
+      `  - 🚫 Block user langsung\n` +
+      `  - ✅ Ignore laporan\n` +
+      `  - 📋 View history lengkap user\n\n` +
+      `👤 User Management:\n` +
+      `• View riwayat user (laporan, status, dll)\n` +
+      `• Send warning ke user\n` +
+      `• Force end chat yang sedang berlangsung\n` +
+      `• Block/unblock langsung dari history\n\n` +
+      `📊 Dashboard:\n` +
+      `• Real-time statistics dengan refresh\n` +
+      `• Report management dengan status\n` +
+      `• One-click maintenance\n\n` +
+      `🔄 AUTO-FEATURES:\n` +
+      `• Auto-block setelah 3+ laporan\n` +
+      `• Auto data cleanup (inactive users)\n` +
+      `• Auto maintenance setiap 24 jam\n` +
+      `• Real-time status tracking\n\n` +
+      `👤 PERINTAH PENGGUNA:\n` +
+      `/start - Mulai mencari obrolan\n` +
+      `/stop - Keluar dari antrian/obrolan\n` +
+      `/report - Laporkan pengguna\n` +
+      `/help - Bantuan pengguna\n\n` +
+      `💡 TIPS:\n` +
+      `• Gunakan inline buttons untuk aksi cepat\n` +
+      `• Check user history sebelum block\n` +
+      `• Berikan warning sebelum block jika perlu\n` +
+      `• Monitor statistics secara berkala`;
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '📊 View Stats', callback_data: 'admin_refresh_stats' },
+          { text: '📋 View Reports', callback_data: 'admin_view_reports' }
+        ],
+        [
+          { text: '🧹 Run Maintenance', callback_data: 'admin_maintenance' }
+        ]
+      ]
+    };
+
+    this.bot.sendMessage(chatId, adminHelp, {
+      reply_markup: keyboard
+    });
+  }
+
   // Handler untuk admin callback queries
   handleAdminCallback(callbackQuery) {
     const chatId = callbackQuery.message.chat.id;
@@ -215,6 +314,11 @@ class AdminHandlers {
           break;
         case 'maintenance':
           this.runMaintenanceFromCallback(chatId);
+          break;
+        case 'end':
+          if (params[0] === 'chat') {
+            this.handleDirectAction(callbackQuery, 'end', parseInt(params[1]));
+          }
           break;
       }
     }
@@ -604,98 +708,6 @@ class AdminHandlers {
       this.bot.sendMessage(chatId, maintenanceReport);
     } catch (error) {
       this.bot.sendMessage(chatId, `❌ Error during maintenance: ${error.message}`);
-    }
-  }
-
-  handleAdminHelp(msg) {
-    const adminId = msg.from.id;
-    const chatId = msg.chat.id;
-
-    if (!helpers.isAdmin(adminId)) {
-      this.bot.sendMessage(chatId, '❌ Anda tidak memiliki akses admin.');
-      return;
-    }
-
-    const adminHelp = 
-      `🔧 PANDUAN ADMIN BOT RANDOM CHAT\n\n` +
-      `📱 PERINTAH COMMAND-BASED:\n` +
-      `/block [user_id] - Blokir pengguna\n` +
-      `/unblock [user_id] - Unblock pengguna\n` +
-      `/stats - Lihat statistik bot\n` +
-      `/reports - Lihat laporan terbaru\n` +
-      `/maintenance - Jalankan maintenance\n` +
-      `/adminhelp - Bantuan admin\n\n` +
-      `🖱️ FITUR INTERACTIVE:\n\n` +
-      `📨 Laporan Otomatis:\n` +
-      `• Saat ada laporan, admin dapat:\n` +
-      `  - 🚫 Block user langsung\n` +
-      `  - ✅ Ignore laporan\n` +
-      `  - 📋 View history lengkap user\n\n` +
-      `👤 User Management:\n` +
-      `• View riwayat user (laporan, status, dll)\n` +
-      `• Send warning ke user\n` +
-      `• Force end chat yang sedang berlangsung\n` +
-      `• Block/unblock langsung dari history\n\n` +
-      `📊 Dashboard:\n` +
-      `• Real-time statistics dengan refresh\n` +
-      `• Report management dengan status\n` +
-      `• One-click maintenance\n\n` +
-      `🔄 AUTO-FEATURES:\n` +
-      `• Auto-block setelah 3+ laporan\n` +
-      `• Auto data cleanup (inactive users)\n` +
-      `• Auto maintenance setiap 24 jam\n` +
-      `• Real-time status tracking\n\n` +
-      `👤 PERINTAH PENGGUNA:\n` +
-      `/start - Mulai mencari obrolan\n` +
-      `/stop - Keluar dari antrian/obrolan\n` +
-      `/report - Laporkan pengguna\n` +
-      `/help - Bantuan pengguna\n\n` +
-      `💡 TIPS:\n` +
-      `• Gunakan inline buttons untuk aksi cepat\n` +
-      `• Check user history sebelum block\n` +
-      `• Berikan warning sebelum block jika perlu\n` +
-      `• Monitor statistics secara berkala`;
-
-    const keyboard = {
-      inline_keyboard: [
-        [
-          { text: '📊 View Stats', callback_data: 'admin_refresh_stats' },
-          { text: '📋 View Reports', callback_data: 'admin_view_reports' }
-        ],
-        [
-          { text: '🧹 Run Maintenance', callback_data: 'admin_maintenance' }
-        ]
-      ]
-    };
-
-    this.bot.sendMessage(chatId, adminHelp, {
-      reply_markup: keyboard
-    });
-  }
-
-  // Handle additional callback actions
-  handleAdditionalCallback(callbackQuery) {
-    const chatId = callbackQuery.message.chat.id;
-    const adminId = callbackQuery.from.id;
-    const data = callbackQuery.data;
-
-    if (!helpers.isAdmin(adminId)) {
-      this.bot.answerCallbackQuery(callbackQuery.id, {
-        text: '❌ Anda tidak memiliki akses admin.',
-        show_alert: true
-      });
-      return;
-    }
-
-    this.bot.answerCallbackQuery(callbackQuery.id);
-
-    const parts = data.split('_');
-    const action = parts[1];
-    const subAction = parts[2];
-    const userId = parseInt(parts[3]);
-
-    if (action === 'end' && subAction === 'chat') {
-      this.handleDirectAction(callbackQuery, 'end', userId);
     }
   }
 }
